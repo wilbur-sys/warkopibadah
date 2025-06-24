@@ -16,24 +16,31 @@ class _BontokoState extends State<Bontoko> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final String _collectionName = 'bontoko_items';
 
+  List<String> kategoriList = [
+    'Semua Kategori', 'ATK', 'Rokok', 'Pindang', 'Makanan', 'Minuman', 'Plastik', 'Lainnya'
+  ];
+  String selectedKategori = 'Semua Kategori';
+  TextEditingController searchController = TextEditingController();
+  bool isSearching = false;
+
   DateTime parseTimestamp(dynamic timestamp) {
     if (timestamp is Timestamp) {
       return timestamp.toDate();
     } else if (timestamp == null) {
-      return DateTime.now(); // Atur default jika timestamp null
+      return DateTime.now();
     } else {
       throw ArgumentError('Invalid timestamp');
     }
   }
 
-  @override
+@override
   Widget build(BuildContext context) {
     return Scaffold(
       body: StreamBuilder<QuerySnapshot>(
         stream: _firestore.collection(_collectionName).snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+            return Center(child: Text('Error: \${snapshot.error}'));
           }
 
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
@@ -50,52 +57,40 @@ class _BontokoState extends State<Bontoko> {
               harga: item['harga']?.toString() ?? '0',
               lastupdate: parseTimestamp(item['lastupdate']),
             );
+          }).where((item) {
+            final searchMatch = item.nama.toLowerCase().contains(searchController.text.toLowerCase());
+            final kategoriMatch = selectedKategori == 'Semua Kategori' || item.kategori == selectedKategori;
+            return searchMatch && kategoriMatch;
           }).toList();
+
 
           return CustomScrollView(
             slivers: <Widget>[
-              SliverToBoxAdapter(
-                child: Table(
-                  border: TableBorder.all(color: Colors.transparent),
-                  columnWidths: const {
-                    0: FlexColumnWidth(0.7),
-                    1: FlexColumnWidth(1.3),
-                    2: FlexColumnWidth(0.8),
-                    3: FlexColumnWidth(1.9),
-                    4: FlexColumnWidth(1.4),
-                    5: FlexColumnWidth(0.9),
-                  },
-                  children: const [
-                    TableRow(
-                      children: [
-                        TableCell(
-                          child: Center(
-                              child: Padding(padding: EdgeInsets.all(9.0),
-                              child: Text("No"),),
-                            )),
-                        TableCell(child: Center(child: Padding(
-                          padding: EdgeInsets.all(9.0),
-                          child: Text('Jumlah'),
-                        ))),
-                        TableCell(child: Center(child: Padding(
-                          padding: EdgeInsets.all(9.0),
-                          child: Text('Isi'),
-                        ))),
-                        TableCell(child: Center(child: Padding(
-                          padding: EdgeInsets.all(9.0),
-                          child: Text('Nama'),
-                        ))),
-                        TableCell(child: Center(child: Padding(
-                          padding: EdgeInsets.all(9.0),
-                          child: Text('Harga'),
-                        ))),
-                        TableCell(child: Center(child: Padding(
-                          padding: EdgeInsets.all(9.0),
-                          child: Text('Time'),
-                        ))),
-                      ],
-                    ),
-                  ],
+              SliverAppBar(
+                pinned: true,
+                elevation: 0,
+                forceElevated: true,
+                backgroundColor: Colors.white,
+                title: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      kategoriDropdownWidget(),
+                      IconButton(
+                        onPressed: () {
+                          setState(() {
+                            isSearching = !isSearching;
+                            if (!isSearching) searchController.clear();
+                          });
+                        },
+                        icon: Icon(isSearching ? Icons.close : Icons.search),
+                      ),
+                    ],
+                  ),
+                ),
+                bottom: PreferredSize(
+                  preferredSize: const Size.fromHeight(50),
+                  child: isSearching ? searchBarWidget() : tableHeaderWidget(),
                 ),
               ),
               SliverList(
@@ -107,18 +102,14 @@ class _BontokoState extends State<Bontoko> {
                         motion: const ScrollMotion(),
                         children: [
                           SlidableAction(
-                            onPressed: (context) {
-                              _showDeleteConfirmationDialog(item);
-                            },
+                            onPressed: (context) => deleteItem(item.id),
                             backgroundColor: Colors.red,
                             foregroundColor: Colors.white,
                             icon: Icons.delete,
                             spacing: 8,
                           ),
                           SlidableAction(
-                            onPressed: (context) {
-                              showUpdateDialog(item.id, item.jumlah, item.isi, item.nama, item.harga, item.kategori);
-                            },
+                            onPressed: (context) => showUpdateDialog(item.id, item.jumlah, item.isi, item.nama, item.harga, item.kategori),
                             backgroundColor: Colors.blue,
                             foregroundColor: Colors.white,
                             icon: Icons.edit,
@@ -135,38 +126,18 @@ class _BontokoState extends State<Bontoko> {
                           4: FlexColumnWidth(1.5),
                           5: FlexColumnWidth(0.8),
                         },
-                        border: TableBorder.all(color: Colors.transparent),
+                        border: TableBorder(
+                          bottom: BorderSide(color: Colors.grey, width: 0.5),
+                        ),
                         children: [
                           TableRow(
                             children: [
-                              TableCell(
-                                child: Center(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(9.0),
-                                    child: Text((index + 1).toString()),
-                                  )
-                                )
-                                ),
-                              TableCell(child: Center(child: Padding(
-                                padding: const EdgeInsets.all(9.0),
-                                child: Text(item.jumlah),
-                              ))),
-                              TableCell(child: Center(child: Padding(
-                                padding: const EdgeInsets.all(9.0),
-                                child: Text(item.isi),
-                              ))),
-                              TableCell(child: Center(child: Padding(
-                                padding: const EdgeInsets.all(9.0),
-                                child: Text(item.nama),
-                              ))),
-                              TableCell(child: Center(child: Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: Text(item.harga),
-                              ))),
-                              TableCell(child: Center(child: Padding(
-                                padding: const EdgeInsets.all(9.0),
-                                child: Text(DateFormat('yyyy-MM-dd').format(item.lastupdate)),
-                              ))),
+                              tableCell((index + 1).toString()),
+                              tableCell(item.jumlah),
+                              tableCell(item.isi),
+                              tableCell(item.nama),
+                              tableCell(item.harga),
+                              tableCell(DateFormat('d MMM yyyy', 'id_ID').format(item.lastupdate)),
                             ],
                           ),
                         ],
@@ -184,9 +155,108 @@ class _BontokoState extends State<Bontoko> {
         onPressed: showAddDialog,
         child: const Icon(Icons.add),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
     );
   }
+
+
+Widget kategoriDropdownWidget() => DropdownButtonHideUnderline(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.black45),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: DropdownButton<String>(
+            value: selectedKategori,
+            hint: const Text('Pilih Kategori'),
+            isDense: true,
+            isExpanded: false,
+            items: kategoriList.map((String kategori) {
+              return DropdownMenuItem<String>(
+                value: kategori,
+                child: Text(kategori),
+              );
+            }).toList(),
+            onChanged: (String? newValue) {
+              setState(() {
+                selectedKategori = newValue!;
+              });
+            },
+          ),
+        ),
+      );
+
+
+Widget searchBarWidget() => Container(
+        alignment: Alignment.center,
+        color: Colors.blueGrey[700],
+        child: TextField(
+          controller: searchController,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Cari barang...',
+            hintStyle: TextStyle(color: Colors.white70),
+            contentPadding: EdgeInsets.all(10),
+            border: InputBorder.none,
+          ),
+          onChanged: (value) {
+            setState(() {});
+          },
+        ),
+      );
+
+
+
+
+Widget tableHeaderWidget() => Container(
+        alignment: Alignment.center,
+        color: Colors.blueGrey[700],
+        child: Table(
+          columnWidths: const {
+            0: FlexColumnWidth(0.7),
+            1: FlexColumnWidth(1.3),
+            2: FlexColumnWidth(0.8),
+            3: FlexColumnWidth(1.9),
+            4: FlexColumnWidth(1.4),
+            5: FlexColumnWidth(0.9),
+          },
+          children: [
+            TableRow(
+              children: [
+                buildHeaderCell("No"),
+                buildHeaderCell("Jumlah"),
+                buildHeaderCell("Isi"),
+                buildHeaderCell("Nama"),
+                buildHeaderCell("Harga"),
+                buildHeaderCell("Time"),
+              ],
+            ),
+          ],
+        ),
+      );
+
+
+
+
+Widget buildHeaderCell(String text) => Padding(
+        padding: const EdgeInsets.all(9.0),
+        child: Text(
+          text,
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          textAlign: TextAlign.center,
+        ),
+      );
+
+  Widget tableCell(String text) => TableCell(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(9.0),
+            child: Text(text),
+          ),
+        ),
+      );
+
+
 
   void _showDeleteConfirmationDialog(BonTokoItem item) {
     showDialog(
@@ -194,7 +264,7 @@ class _BontokoState extends State<Bontoko> {
       builder: (context) {
         return AlertDialog(
           title: Text('Hapus ${item.nama}?'),
-          content: const Text('Anda yakin ingin menghapus item ini?'),
+          content: const Text('  yakin ingin menghapus item ini?'),
           actions: [
             ElevatedButton(
               onPressed: () {
