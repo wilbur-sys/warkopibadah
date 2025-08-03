@@ -1,36 +1,34 @@
 // Import package yang diperlukan
-import 'package:cloud_firestore/cloud_firestore.dart'; // Digunakan untuk berinteraksi dengan Firebase Firestore (database NoSQL)
-import 'package:flutter/material.dart'; // Package dasar Flutter untuk membangun UI
-import 'package:warkopibadah/item.dart'; // Mengimpor definisi kelas 'Item', yang merepresentasikan data barang
-import 'package:flutter_slidable/flutter_slidable.dart'; // Digunakan untuk membuat item daftar yang dapat digeser (swipe actions)
-import 'package:warkopibadah/reusablecode.dart'; // Mengimpor kode atau utilitas yang dapat digunakan kembali (misalnya definisi fontbold)
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:warkopibadah/item.dart';
+import 'package:warkopibadah/reusablecode.dart';
 
 // --- Konstanta Global ---
-const COLLECTION_NAME = 'barang_items'; // Nama koleksi di Firebase Firestore tempat data barang disimpan
-// Daftar kategori yang tersedia untuk barang, termasuk opsi 'Semua Kategori'
-const List<String> kategoriList = ['Semua Kategori', 'ATK', 'Rokok', 'Pindang', 'Makanan', 'Minuman', 'Plastik', 'Lainnya'];
-// Daftar kategori yang digunakan untuk filter dan input, tanpa 'Semua Kategori'
-final List<String> filteredKategoriList = kategoriList.where((kategori) => kategori != 'Semua Kategori').toList();
+const COLLECTION_NAME = 'barang_items';
+// Nama koleksi baru untuk menyimpan kategori secara dinamis
+const CATEGORY_COLLECTION_NAME = 'categories';
 
 /// Widget utama untuk layar daftar barang.
-/// Merupakan [StatefulWidget] karena tampilannya akan berubah (misalnya, daftar barang diperbarui).
 class BarangScreen extends StatefulWidget {
-  // Konstruktor untuk BarangScreen. Key adalah parameter opsional yang membantu Flutter dalam mengidentifikasi widget.
   const BarangScreen({super.key, required this.title});
 
-  final String title; // Judul untuk layar, biasanya ditampilkan di AppBar.
+  final String title;
 
   @override
-  _BarangScreenState createState() => _BarangScreenState(); // Membuat State untuk widget ini.
+  _BarangScreenState createState() => _BarangScreenState();
 }
 
 /// State terkait untuk [BarangScreen].
-/// Ini mengelola data dan logika yang terkait dengan tampilan layar barang.
 class _BarangScreenState extends State<BarangScreen> {
-  List<Item> barangItems = []; // Daftar [Item] yang akan ditampilkan di UI. Ini diperbarui dari Firestore.
-  String selectedKategori = 'Semua Kategori'; // Kategori yang saat ini dipilih untuk memfilter daftar barang.
-  TextEditingController searchController = TextEditingController(); // Controller untuk input teks pencarian.
-  bool isSearching = false; // Status apakah mode pencarian sedang aktif atau tidak.
+  // Daftar item barang yang diambil dari Firestore
+  List<Item> barangItems = [];
+  // Daftar kategori yang diambil secara dinamis dari Firestore
+  List<String> _categories = [];
+  String selectedKategori = 'Semua Kategori';
+  TextEditingController searchController = TextEditingController();
+  bool isSearching = false;
 
   /*
   -------------------------------------------------------------------------------------------------------------
@@ -41,66 +39,89 @@ class _BarangScreenState extends State<BarangScreen> {
   @override
   void initState() {
     super.initState();
-    fetchRecords(); // Memanggil metode untuk mengambil data awal dari Firestore saat State diinisialisasi.
-    // Mendengarkan perubahan data secara real-time dari koleksi Firestore.
-    // Setiap kali ada perubahan (tambah, hapus, update) di koleksi, callback ini akan dipicu.
+    // Panggil metode untuk mengambil data dan mendengarkan perubahan
+    _setupFirestoreListeners();
+  }
+
+  /// Mengatur listener real-time untuk barang dan kategori dari Firestore.
+  void _setupFirestoreListeners() {
+    // Listener untuk koleksi barang
     FirebaseFirestore.instance.collection(COLLECTION_NAME).snapshots().listen((records) {
-      mapRecords(records); // Memetakan snapshot data terbaru ke dalam daftar [Item] dan memperbarui UI.
+      mapRecords(records);
+    });
+
+    // Listener untuk koleksi kategori
+    FirebaseFirestore.instance.collection(CATEGORY_COLLECTION_NAME).snapshots().listen((records) {
+      _mapCategories(records);
     });
   }
 
-  /// Mengambil semua dokumen dari koleksi Firestore [COLLECTION_NAME].
-  /// Ini adalah pengambilan data satu kali (bukan real-time listener).
-  fetchRecords() async {
-    // Mengambil snapshot dokumen dari koleksi yang ditentukan.
-    var records = await FirebaseFirestore.instance.collection(COLLECTION_NAME).get();
-    mapRecords(records); // Memproses dan memetakan data yang diambil.
+  /// Memetakan [QuerySnapshot] dari koleksi kategori ke dalam daftar string.
+  /// [records]: Snapshot data dari koleksi `categories`.
+  void _mapCategories(QuerySnapshot<Map<String, dynamic>> records) {
+    var categoryList = records.docs.map(
+      (doc) => doc['name'].toString(),
+    ).toList();
+    // Urutkan kategori secara alfabetis
+    categoryList.sort();
+
+    setState(() {
+      _categories = categoryList;
+      // Atur ulang filter kategori jika kategori yang dipilih sudah tidak ada
+      if (!(_categories.contains(selectedKategori) || selectedKategori == 'Semua Kategori')) {
+        selectedKategori = 'Semua Kategori';
+      }
+    });
   }
 
   /// Memetakan [QuerySnapshot] dari Firestore ke dalam daftar objek [Item].
-  /// [records]: Snapshot data dari Firestore yang berisi dokumen-dokumen.
-  mapRecords(QuerySnapshot<Map<String, dynamic>> records) {
-    // Mengubah setiap dokumen dalam snapshot menjadi objek [Item].
+  /// [records]: Snapshot data dari koleksi `barang_items`.
+  void mapRecords(QuerySnapshot<Map<String, dynamic>> records) {
     var _list = records.docs.map(
       (item) => Item(
-        id: item.id, // ID dokumen Firestore, digunakan untuk operasi update/delete.
-        name: item['name'], // Nama barang.
-        hargapcs: item['hargapcs'], // Harga per unit/pcs.
-        hargapak: item['hargapak'], // Harga per pak.
-        kategori: item['kategori'], // Kategori barang.
-        modal: item['modal'], // Modal barang.
+        id: item.id,
+        name: item['name'],
+        hargapcs: item['hargapcs'],
+        hargapak: item['hargapak'],
+        kategori: item['kategori'],
+        modal: item['modal'],
       ),
-    ).toList(); // Mengubah hasil iterasi menjadi List<Item>.
+    ).toList();
 
-    // Memperbarui state widget dengan daftar barang yang baru.
-    // Ini akan memicu pembangunan ulang (rebuild) widget UI.
     setState(() {
-      barangItems = _list; // Memperbarui daftar barang utama.
+      barangItems = _list;
     });
   }
 
-  /// Memfilter daftar [barangItems] berdasarkan kategori yang dipilih dan teks pencarian.
-  /// Mengembalikan daftar [Item] yang sudah difilter.
-  List<Item> getFilteredItems() {
-    List<Item> items = barangItems; // Salin daftar item agar tidak memodifikasi yang asli langsung.
-
-    // Filter berdasarkan kategori jika bukan 'Semua Kategori'.
-    if (selectedKategori != 'Semua Kategori') {
-      items = items.where((item) => item.kategori == selectedKategori).toList();
-    }
-
-    // Filter berdasarkan teks pencarian jika ada input.
-    if (searchController.text.isNotEmpty) {
-      items = items.where((item) =>
-        item.name.toLowerCase().contains(searchController.text.toLowerCase()) // Pencarian case-insensitive.
-      ).toList();
-    }
-    return items; // Mengembalikan daftar item yang sudah difilter.
+  /// Menambah kategori baru ke koleksi `categories` di Firestore.
+  void _addCategory(String name) {
+    FirebaseFirestore.instance.collection(CATEGORY_COLLECTION_NAME).add({
+      'name': name,
+    });
   }
 
-  /// Mengurutkan daftar [barangItems] secara alfabetis berdasarkan nama barang.
-  void sortItemsByName() {
-    barangItems.sort((a, b) => a.name.compareTo(b.name)); // Menggunakan compareTo untuk pengurutan string.
+  /// Menambah item baru ke koleksi `barang_items` di Firestore.
+  void addItem(String name, String hargapcs, String hargapak, String kategori, String modal) {
+    var item = Item(id: '', name: name, hargapcs: hargapcs, hargapak: hargapak, kategori: kategori, modal: modal);
+    FirebaseFirestore.instance.collection(COLLECTION_NAME).add(item.toJson());
+  }
+
+  /// Memperbarui data item yang sudah ada di Firestore.
+  void updateItem(String id, String name, String hargapcs, String hargapak, String kategori, String modal) {
+    FirebaseFirestore.instance.collection(COLLECTION_NAME).doc(id).update(
+      {
+        "name": name,
+        "hargapcs": hargapcs,
+        "hargapak": hargapak,
+        "kategori": kategori,
+        "modal": modal,
+      }
+    );
+  }
+
+  /// Menghapus item dari koleksi Firestore berdasarkan ID.
+  void deleteItem(String id) {
+    FirebaseFirestore.instance.collection(COLLECTION_NAME).doc(id).delete();
   }
 
   /*
@@ -109,262 +130,312 @@ class _BarangScreenState extends State<BarangScreen> {
   -------------------------------------------------------------------------------------------------------------
   */
 
+  /// Memfilter daftar barang berdasarkan kategori dan pencarian.
+  List<Item> getFilteredItems() {
+    List<Item> items = barangItems;
+    if (selectedKategori != 'Semua Kategori') {
+      items = items.where((item) => item.kategori == selectedKategori).toList();
+    }
+    if (searchController.text.isNotEmpty) {
+      items = items.where((item) =>
+        item.name.toLowerCase().contains(searchController.text.toLowerCase())
+      ).toList();
+    }
+    return items;
+  }
+
+  /// Mengurutkan daftar barang secara alfabetis.
+  void sortItemsByName() {
+    barangItems.sort((a, b) => a.name.compareTo(b.name));
+  }
+
   @override
   Widget build(BuildContext context) {
-    sortItemsByName(); // Pastikan daftar barang selalu diurutkan sebelum ditampilkan.
-    List<Item> filteredItems = getFilteredItems(); // Dapatkan item yang sudah difilter untuk ditampilkan.
+    sortItemsByName();
+    List<Item> filteredItems = getFilteredItems();
+    // Tambahkan 'Semua Kategori' ke daftar kategori yang akan ditampilkan di dropdown filter
+    List<String> displayKategoriList = ['Semua Kategori', ..._categories];
 
     return Scaffold(
-      body: CustomScrollView( // Digunakan untuk efek AppBar yang dapat digulir dan fleksibel.
+      body: CustomScrollView(
         slivers: <Widget>[
           SliverAppBar(
-            pinned: true, // AppBar tetap terlihat di bagian atas saat menggulir.
-            elevation: 0, // Menghilangkan bayangan di bawah AppBar.
-            forceElevated: true, // Memaksa AppBar untuk memiliki elevasi (meskipun 0) saat digulir.
-            backgroundColor: Colors.white, // Warna latar belakang AppBar.
-            title: Center( // Mengatur judul di tengah AppBar.
+            pinned: true,
+            elevation: 0,
+            forceElevated: true,
+            backgroundColor: Colors.white,
+            title: Center(
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.start, // Mengatur elemen di baris ke awal.
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  // Dropdown untuk memilih kategori. Dibungkus dengan DropdownButtonHideUnderline
-                  // untuk menghilangkan garis bawah default.
                   DropdownButtonHideUnderline(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       decoration: BoxDecoration(
-                        border: Border.all(color: Colors.black45), // Border di sekitar dropdown.
-                        borderRadius: BorderRadius.circular(12), // Sudut border yang membulat.
+                        border: Border.all(color: Colors.black45),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: DropdownButton<String>(
-                        value: selectedKategori, // Nilai yang saat ini dipilih.
-                        hint: const Text('Pilih Kategori'), // Teks petunjuk.
-                        isDense: true, // Membuat dropdown lebih ringkas secara vertikal.
-                        isExpanded: false, // Tidak memperluas dropdown untuk mengisi lebar.
-                        items: kategoriList.map<DropdownMenuItem<String>>((String kategori) {
+                        value: selectedKategori,
+                        hint: const Text('Pilih Kategori'),
+                        isDense: true,
+                        isExpanded: false,
+                        items: displayKategoriList.map<DropdownMenuItem<String>>((String kategori) {
                           return DropdownMenuItem<String>(
                             value: kategori,
                             child: Text(kategori),
                           );
                         }).toList(),
                         onChanged: (String? newValue) {
-                          // Dipanggil ketika pengguna memilih item baru dari dropdown.
                           setState(() {
-                            selectedKategori = newValue!; // Perbarui kategori yang dipilih.
+                            selectedKategori = newValue!;
                           });
                         },
                       ),
                     ),
                   ),
-
-                  // Tombol ikon untuk mengaktifkan/menonaktifkan mode pencarian.
+                  // Tombol untuk menambah kategori baru
                   IconButton(
-                    onPressed: (){
+                    onPressed: _showAddCategoryDialog,
+                    icon: const Icon(Icons.category),
+                  ),
+                  // Tombol untuk mengaktifkan/menonaktifkan mode pencarian
+                  IconButton(
+                    onPressed: () {
                       setState(() {
-                        isSearching = !isSearching; // Toggle status pencarian.
+                        isSearching = !isSearching;
                         if (!isSearching) {
-                          searchController.clear(); // Hapus teks pencarian saat menutup mode pencarian.
+                          searchController.clear();
                         }
                       });
                     },
-                    icon: Icon(isSearching ? Icons.close : Icons.search), // Ganti ikon berdasarkan status pencarian.
+                    icon: Icon(isSearching ? Icons.close : Icons.search),
                   ),
                 ],
               ),
             ),
-            // Widget di bagian bawah AppBar.
             bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(50), // Tinggi yang diinginkan untuk bagian bawah AppBar.
+              preferredSize: const Size.fromHeight(50),
               child: Container(
                 alignment: Alignment.center,
-                color: Colors.blueGrey[700], // Warna latar belakang bagian bawah AppBar.
+                color: Colors.blueGrey[700],
                 child: Column(
                   children: [
-                    // TextField untuk pencarian, hanya terlihat jika isSearching true.
-                    if(isSearching)
-                    SingleChildScrollView( // Memastikan TextField bisa digulir jika teksnya panjang (jarang terjadi pada search bar).
-                      child: TextField(
-                        controller: searchController, // Mengikat TextField ke searchController.
-                        style: const TextStyle(color: Colors.white), // Gaya teks input.
-                        decoration: const InputDecoration(
-                          hintText: 'Cari barang...', // Teks petunjuk di TextField.
-                          hintStyle: TextStyle(color: Colors.white70), // Gaya teks petunjuk.
-                          // Batas input dihilangkan untuk tampilan yang lebih bersih di AppBar.
+                    if (isSearching)
+                      SingleChildScrollView(
+                        child: TextField(
+                          controller: searchController,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(
+                            hintText: 'Cari barang...',
+                            hintStyle: TextStyle(color: Colors.white70),
+                          ),
+                          onChanged: (value) {
+                            setState(() {});
+                          },
                         ),
-                        onChanged: (value) {
-                          // Dipanggil setiap kali teks input berubah.
-                          // Memicu setState untuk memperbarui daftar barang yang difilter.
-                          setState(() {});
+                      ),
+                    if (!isSearching)
+                      Table(
+                        columnWidths: const {
+                          0: FixedColumnWidth(50.0),
+                          1: FlexColumnWidth(1.0),
+                          2: FlexColumnWidth(1.0),
+                          3: FlexColumnWidth(1.0),
                         },
-                      ),
-                    ),
-                    // Header tabel untuk daftar barang, hanya terlihat jika isSearching false.
-                    if(!isSearching)
-                    Table(
-                      columnWidths: const {
-                        0: FixedColumnWidth(50.0), // Lebar tetap untuk kolom "No".
-                        1: FlexColumnWidth(1.0), // Lebar fleksibel untuk kolom lainnya.
-                        2: FlexColumnWidth(1.0),
-                        3: FlexColumnWidth(1.0),
-                      },
-                      border: TableBorder.all(
-                        color: Colors.blueGrey[800]!, // Warna border untuk semua sisi.
-                        width: 0.5, // Ketebalan border.
-                      ),
-                      children: [
-                        TableRow(
-                          children: [
-                            TableCell(
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(9.0),
-                                  child: Text("No", style: fontbold.copyWith(color: Colors.white)), // Menggunakan fontbold dari reusablecode.dart.
+                        border: TableBorder.all(
+                          color: Colors.blueGrey[800]!,
+                          width: 0.5,
+                        ),
+                        children: [
+                          TableRow(
+                            children: [
+                              TableCell(
+                                child: Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(9.0),
+                                    child: Text("No", style: fontbold.copyWith(color: Colors.white)),
+                                  ),
                                 ),
                               ),
-                            ),
-                            TableCell(child: Center(
-                              child: Padding(padding: const EdgeInsets.all(9.0),
-                                child: Text("Nama\nBarang", style: fontbold.copyWith(color: Colors.white)),
-                              ),
-                            )),
-                            TableCell(child: Center(
-                              child: Padding(padding: const EdgeInsets.all(9.0),
-                                child: Text("Harga\nJual/pcs", style: fontbold.copyWith(color: Colors.white)),
-                              ),
-                            )),
-                            TableCell(child: Center(
-                              child: Padding(padding: const EdgeInsets.all(9.0),
-                                child: Text("Harga\nJual/pak", style: fontbold.copyWith(color: Colors.white)),
-                              ),
-                            )),
-                          ]
-                        )
-                      ],
-                    ),
+                              TableCell(child: Center(
+                                child: Padding(padding: const EdgeInsets.all(9.0),
+                                  child: Text("Nama\nBarang", style: fontbold.copyWith(color: Colors.white)),
+                                ),
+                              )),
+                              TableCell(child: Center(
+                                child: Padding(padding: const EdgeInsets.all(9.0),
+                                  child: Text("Harga\nJual/pcs", style: fontbold.copyWith(color: Colors.white)),
+                                ),
+                              )),
+                              TableCell(child: Center(
+                                child: Padding(padding: const EdgeInsets.all(9.0),
+                                  child: Text("Harga\nJual/pak", style: fontbold.copyWith(color: Colors.white)),
+                                ),
+                              )),
+                            ]
+                          )
+                        ],
+                      ),
                   ],
                 ),
-              )
+              ),
             ),
           ),
-          // Daftar barang yang dapat digulir dan ditampilkan sebagai SliverList.
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (BuildContext context, int index){
-                var item = filteredItems[index]; // Ambil item pada indeks saat ini.
-                return Slidable( // Widget yang memungkinkan penggeseran item untuk menampilkan aksi.
-                  key: ValueKey(item.id), // Key unik untuk setiap Slidable item, penting untuk performa dan identifikasi.
-                  endActionPane: ActionPane( // Aksi yang muncul saat menggeser dari kanan.
-                    motion: const ScrollMotion(), // Efek gerakan saat menggeser.
+                var item = filteredItems[index];
+                return Slidable(
+                  key: ValueKey(item.id),
+                  endActionPane: ActionPane(
+                    motion: const ScrollMotion(),
                     children: [
                       SlidableAction(
                         onPressed: (context){
-                          deleteItem(item.id); // Panggil metode untuk menghapus item.
+                          deleteItem(item.id);
                         },
-                        backgroundColor: Colors.red, // Warna latar belakang aksi delete.
-                        foregroundColor: Colors.white, // Warna ikon/teks.
-                        icon: Icons.delete, // Ikon delete.
-                        // label: 'Delete', // Label teks.
-                        spacing: 8, // Jarak antar aksi.
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        icon: Icons.delete,
+                        spacing: 8,
                       ),
                       SlidableAction(
                         onPressed: (context) {
-                          // Panggil dialog update saat aksi edit ditekan.
                           showUpdateDialog(item.id, item.name, item.hargapcs, item.hargapak, item.kategori ?? '', item.modal ?? '');
                         },
-                        backgroundColor: Colors.yellow[800]!, // Warna latar belakang aksi edit.
+                        backgroundColor: Colors.yellow[800]!,
                         foregroundColor: Colors.white,
-                        icon: Icons.edit, // Ikon edit.
-                        // label: 'Edit',
-                        // spacing: 8,
+                        icon: Icons.edit,
                       ),
                       SlidableAction(
-                        onPressed: null, // Aksi ini tidak dapat ditekan (hanya menampilkan info).
-                        backgroundColor: Colors.blue[700]!, // Warna latar belakang untuk menampilkan modal.
+                        onPressed: null,
+                        backgroundColor: Colors.blue[700]!,
                         foregroundColor: Colors.white,
-                        label: 'Modal: ${item.modal}', // Tampilkan nilai modal sebagai label.
+                        label: 'Modal: ${item.modal}',
                         spacing: 8,
                       )
                     ]
                   ),
-                  child: Table( // Tampilan detail item dalam bentuk tabel.
+                  child: Table(
                     columnWidths: const {
-                      0: FixedColumnWidth(50.0), // Lebar tetap untuk nomor.
+                      0: FixedColumnWidth(50.0),
                       1: FlexColumnWidth(1.0),
                       2: FlexColumnWidth(1.0),
                       3: FlexColumnWidth(1.0),
                     },
                     border: const TableBorder(
-                      horizontalInside: BorderSide.none, // Tidak ada border horizontal di dalam.
-                      verticalInside: BorderSide.none, // Tidak ada border vertikal di dalam.
-                      top: BorderSide(width: 0.5, color: Colors.grey), // Border atas tipis untuk setiap baris.
-                      bottom: BorderSide.none, // Tidak ada border bawah.
-                      left: BorderSide.none, // Tidak ada border kiri.
-                      right: BorderSide.none, // Tidak ada border kanan.
+                      horizontalInside: BorderSide.none,
+                      verticalInside: BorderSide.none,
+                      top: BorderSide(width: 0.5, color: Colors.grey),
+                      bottom: BorderSide.none,
+                      left: BorderSide.none,
+                      right: BorderSide.none,
                     ),
                     children: [
                       TableRow(
                         children: [
-                          TableCell(child: Center(child: Padding(padding: const EdgeInsets.all( 7.0), child: Text((index + 1).toString()),))), // Nomor urut item.
-                          TableCell(child: Align(alignment:Alignment.centerLeft, child: Padding(padding: const EdgeInsets.all(7.0), child: Text(item.name),))), // Nama barang.
-                          TableCell(child: Center(child: Padding(padding: const EdgeInsets.all(7.0), child: Text(item.hargapcs),))), // Harga per pcs.
-                          TableCell(child: Center(child: Padding(padding: const EdgeInsets.all(7.0), child: Text(item.hargapak),))), // Harga per pak.
+                          TableCell(child: Center(child: Padding(padding: const EdgeInsets.all( 7.0), child: Text((index + 1).toString()),))),
+                          TableCell(child: Align(alignment:Alignment.centerLeft, child: Padding(padding: const EdgeInsets.all(7.0), child: Text(item.name),))),
+                          TableCell(child: Center(child: Padding(padding: const EdgeInsets.all(7.0), child: Text(item.hargapcs),))),
+                          TableCell(child: Center(child: Padding(padding: const EdgeInsets.all(7.0), child: Text(item.hargapak),))),
                         ],
                       ),
                     ],
                   ),
                 );
               },
-              childCount: filteredItems.length // Jumlah item yang akan dibangun dalam daftar.
+              childCount: filteredItems.length
             )
           )
         ],
       ),
-      // Tombol aksi mengambang untuk menambahkan barang baru.
       floatingActionButton: FloatingActionButton(
-        onPressed: showAddDialog, // Panggil metode untuk menampilkan dialog tambah barang.
-        child: const Icon(Icons.add), // Ikon tambah.
+        onPressed: showAddDialog,
+        child: const Icon(Icons.add),
       ),
     );
   }
 
-  /*
-  -------------------------------------------------------------------------------------------------------------
-  --------------------------------------------APPLICATION LOGIC------------------------------------------------
-  -------------------------------------------------------------------------------------------------------------
-  */
-
-  /// Menampilkan dialog untuk menambahkan item barang baru.
-  showAddDialog() {
-    // Inisialisasi controller untuk input teks pada dialog.
-    var nameController = TextEditingController();
-    var hargapcsController = TextEditingController();
-    var hargapakController = TextEditingController();
-    var modalController = TextEditingController();
-
-    // Daftar kategori yang tersedia untuk dipilih di dropdown dialog.
-    var _currencies = [
-      "Rokok", "Makanan", "Minuman", "Pindang", "ATK", "Plastik", "Lainnya",
-    ];
-
-    String _currentSelectedKategori = _currencies[0]; // Inisialisasi dropdown dengan kategori pertama.
+  /// Menampilkan dialog untuk menambahkan kategori baru.
+  void _showAddCategoryDialog() {
+    var categoryController = TextEditingController();
 
     showDialog(
       context: context,
       builder: (context) {
-        // Menggunakan StatefulBuilder agar dialog dapat memperbarui state-nya sendiri (misalnya dropdown).
+        return Dialog(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('Tambah Kategori Baru', style: TextStyle(fontSize: 20)),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: categoryController,
+                  decoration: const InputDecoration(
+                    labelText: 'Nama Kategori',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Batal'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        var name = categoryController.text.trim();
+                        if (name.isNotEmpty) {
+                          _addCategory(name);
+                          Navigator.pop(context);
+                        }
+                      },
+                      child: const Text('Simpan'),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Menampilkan dialog untuk menambahkan item barang baru.
+  showAddDialog() {
+    var nameController = TextEditingController();
+    var hargapcsController = TextEditingController();
+    var hargapakController = TextEditingController();
+    var modalController = TextEditingController();
+    
+    // Gunakan daftar kategori yang dinamis dari Firestore
+    List<String> filteredKategoriList = _categories;
+
+    String _currentSelectedKategori = filteredKategoriList.isNotEmpty ? filteredKategoriList[0] : '';
+
+    showDialog(
+      context: context,
+      builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
             return Dialog(
               child: Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min, // Membuat kolom sekecil mungkin sesuai kontennya.
-                  crossAxisAlignment: CrossAxisAlignment.stretch, // Membentang elemen secara horizontal.
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Center(
                       child: Text('Detail Barang', style: TextStyle(fontSize: 20)),
                     ),
                     const SizedBox(height: 20),
-                    // TextField untuk input Nama Barang.
                     TextField(
                       controller: nameController,
                       decoration: InputDecoration(
@@ -375,7 +446,6 @@ class _BarangScreenState extends State<BarangScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // TextField untuk input Harga Barang / pcs.
                     TextField(
                       controller: hargapcsController,
                       decoration: InputDecoration(
@@ -386,7 +456,6 @@ class _BarangScreenState extends State<BarangScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // TextField untuk input Harga Barang / pak.
                     TextField(
                       controller: hargapakController,
                       decoration: InputDecoration(
@@ -398,40 +467,41 @@ class _BarangScreenState extends State<BarangScreen> {
                     ),
                     const SizedBox(height: 10),
                     // Dropdown untuk memilih Kategori.
-                    FormField<String>(
-                      builder: (FormFieldState<String> state) {
-                        return InputDecorator(
-                          decoration: InputDecoration(
-                            labelText: 'Pilih Kategori',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(5.0),
+                    if (filteredKategoriList.isNotEmpty) // Tampilkan dropdown hanya jika ada kategori
+                      FormField<String>(
+                        builder: (FormFieldState<String> state) {
+                          return InputDecorator(
+                            decoration: InputDecoration(
+                              labelText: 'Pilih Kategori',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(5.0),
+                              ),
                             ),
-                          ),
-                          isEmpty: _currentSelectedKategori == '',
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _currentSelectedKategori,
-                              isDense: true,
-                              onChanged: (String? newValue) {
-                                // Memperbarui state dialog saat kategori berubah.
-                                setState(() {
-                                  _currentSelectedKategori = newValue ?? _currencies[0]; // Tangani nilai null.
-                                  state.didChange(newValue);
-                                });
-                              },
-                              items: _currencies.map((String value) {
-                                return DropdownMenuItem<String>(
-                                  value: value,
-                                  child: Text(value),
-                                );
-                              }).toList(),
+                            isEmpty: _currentSelectedKategori == '',
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _currentSelectedKategori.isNotEmpty ? _currentSelectedKategori : null,
+                                isDense: true,
+                                onChanged: (String? newValue) {
+                                  setState(() {
+                                    _currentSelectedKategori = newValue ?? filteredKategoriList[0];
+                                    state.didChange(newValue);
+                                  });
+                                },
+                                items: filteredKategoriList.map((String value) {
+                                  return DropdownMenuItem<String>(
+                                    value: value,
+                                    child: Text(value),
+                                  );
+                                }).toList(),
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      )
+                    else 
+                      const Text('Tidak ada kategori. Tambahkan kategori terlebih dahulu.', style: TextStyle(fontStyle: FontStyle.italic)),
                     const SizedBox(height: 10),
-                    // TextField untuk input Harga Modal.
                     TextField(
                       controller: modalController,
                       decoration: InputDecoration(
@@ -441,17 +511,14 @@ class _BarangScreenState extends State<BarangScreen> {
                         labelText: 'Harga Modal',
                       ),
                     ),
-                    // Tombol untuk menyimpan data barang baru.
                     ElevatedButton(
                       onPressed: () {
-                        // Ambil nilai dari setiap controller dan bersihkan spasi ekstra.
                         var name = nameController.text.trim();
                         var hargapcs = hargapcsController.text.trim();
                         var hargapak = hargapakController.text.trim();
                         var modal = modalController.text.trim();
-                        // Panggil metode untuk menambahkan item ke Firestore.
                         addItem(name, hargapcs, hargapak, _currentSelectedKategori, modal);
-                        Navigator.of(context).pop(); // Tutup dialog setelah menambahkan barang.
+                        Navigator.of(context).pop();
                       },
                       child: const Text('Simpan'),
                     ),
@@ -466,20 +533,16 @@ class _BarangScreenState extends State<BarangScreen> {
   }
 
   /// Menampilkan dialog untuk memperbarui detail item barang yang sudah ada.
-  /// [id]: ID dokumen item di Firestore.
-  /// [currentName], [currentHargapcs], [currentHargapak], [currentKategori], [currentModal]: Nilai item saat ini.
   showUpdateDialog(String id, String currentName, String currentHargapcs, String currentHargapak, String currentKategori, String currentModal) {
-    // Inisialisasi controller dengan nilai-nilai item yang ada saat ini.
     var nameController = TextEditingController(text: currentName);
     var hargapcsController = TextEditingController(text: currentHargapcs);
     var hargapakController = TextEditingController(text: currentHargapak);
-    var modalController = TextEditingController(text: currentModal); // Pastikan modalController diinisialisasi dengan currentModal
+    var modalController = TextEditingController(text: currentModal);
 
-    // Inisialisasi kategori yang dipilih dengan nilai kategori saat ini.
     String _currentSelectedValue = currentKategori;
+    List<String> filteredKategoriList = _categories;
 
     showDialog(context: context, builder: (context) {
-      // Menggunakan StatefulBuilder agar dialog dapat memperbarui state-nya sendiri (misalnya dropdown).
       return StatefulBuilder(
         builder: (context, setState) {
           return Dialog(
@@ -494,62 +557,56 @@ class _BarangScreenState extends State<BarangScreen> {
                       const Center(child: Text('Item Detail', style: TextStyle(fontSize: 20))),
                     ],
                   ),
-                  // TextField untuk Nama Barang.
                   TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Nama Barang')),
-                  // TextField untuk Harga Barang / pcs.
                   TextField(controller: hargapcsController, decoration: const InputDecoration(labelText: 'Harga Barang / pcs')),
-                  // TextField untuk Harga Barang / pak.
                   TextField(controller: hargapakController, decoration: const InputDecoration(labelText: 'Harga Barang / pak')),
                   const SizedBox(height: 10),
-                  // Dropdown untuk memilih Kategori.
-                  FormField<String>(
-                    builder: (FormFieldState<String> state) {
-                      return InputDecorator(
-                        decoration: const InputDecoration(
-                          labelText: 'Kategori',
-                          border: OutlineInputBorder(),
-                        ),
-                        isEmpty: _currentSelectedValue == '',
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: _currentSelectedValue,
-                            isDense: true,
-                            onChanged: (String? newValue) {
-                              // Memperbarui state dialog saat kategori berubah.
-                              setState(() {
-                                _currentSelectedValue = newValue ?? ''; // Tangani nilai null jika diperlukan.
-                                state.didChange(newValue);
-                              });
-                            },
-                            items: filteredKategoriList.map((String value) { // Menggunakan filteredKategoriList
-                              return DropdownMenuItem<String>(
-                                value: value,
-                                child: Text(value),
-                              );
-                            }).toList(),
+                  if (filteredKategoriList.isNotEmpty)
+                    FormField<String>(
+                      builder: (FormFieldState<String> state) {
+                        return InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Kategori',
+                            border: OutlineInputBorder(),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                  // TextField untuk Modal.
+                          isEmpty: _currentSelectedValue == '',
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _currentSelectedValue.isNotEmpty ? _currentSelectedValue : null,
+                              isDense: true,
+                              onChanged: (String? newValue) {
+                                setState(() {
+                                  _currentSelectedValue = newValue ?? '';
+                                  state.didChange(newValue);
+                                });
+                              },
+                              items: filteredKategoriList.map((String value) {
+                                return DropdownMenuItem<String>(
+                                  value: value,
+                                  child: Text(value),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        );
+                      },
+                    )
+                  else
+                    const Text('Tidak ada kategori. Tambahkan kategori terlebih dahulu.', style: TextStyle(fontStyle: FontStyle.italic)),
                   TextField(controller: modalController, decoration: const InputDecoration(labelText: 'Modal')),
                   const SizedBox(height: 10),
-                  // Tombol untuk memperbarui data.
                   Align(
                     alignment: Alignment.centerRight,
                     child: ElevatedButton(
                       onPressed: () {
-                        // Ambil nilai terbaru dari controller.
                         var name = nameController.text.trim();
                         var hargapcs = hargapcsController.text.trim();
                         var hargapak = hargapakController.text.trim();
-                        var kategori = _currentSelectedValue; // Ambil kategori yang dipilih dari dropdown.
+                        var kategori = _currentSelectedValue;
                         var modal = modalController.text.trim();
 
-                        // Panggil metode untuk memperbarui item di Firestore.
                         updateItem(id, name, hargapcs, hargapak, kategori, modal);
-                        Navigator.pop(context); // Menutup dialog setelah memperbarui.
+                        Navigator.pop(context);
                       },
                       child: const Text('Update Data'),
                     ),
@@ -561,37 +618,5 @@ class _BarangScreenState extends State<BarangScreen> {
         },
       );
     });
-  }
-
-  /// Menambahkan item baru ke koleksi Firestore.
-  /// [name], [hargapcs], [hargapak], [kategori], [modal]: Data item yang akan ditambahkan.
-  addItem(String name, String hargapcs, String hargapak, String kategori, String modal) {
-    // Buat objek Item baru. ID akan otomatis dihasilkan oleh Firestore.
-    var item = Item(id: 'id', name: name, hargapcs: hargapcs, hargapak: hargapak, kategori: kategori, modal: modal);
-    // Tambahkan item ke koleksi Firestore.
-    FirebaseFirestore.instance.collection(COLLECTION_NAME).add(item.toJson());
-  }
-
-  /// Memperbarui data item yang sudah ada di Firestore.
-  /// [id]: ID dokumen item yang akan diperbarui.
-  /// [name], [hargapcs], [hargapak], [kategori], [modal]: Data item yang diperbarui.
-  updateItem(String id, String name, String hargapcs, String hargapak, String kategori, String modal) {
-    // Perbarui dokumen dengan ID yang sesuai di koleksi Firestore.
-    FirebaseFirestore.instance.collection(COLLECTION_NAME).doc(id).update(
-      {
-        "name": name,
-        "hargapcs": hargapcs,
-        "hargapak": hargapak,
-        "kategori": kategori,
-        "modal": modal,
-      }
-    );
-  }
-
-  /// Menghapus item dari koleksi Firestore berdasarkan ID.
-  /// [id]: ID dokumen item yang akan dihapus.
-  deleteItem(String id) {
-    // Hapus dokumen dengan ID yang sesuai dari koleksi Firestore.
-    FirebaseFirestore.instance.collection(COLLECTION_NAME).doc(id).delete();
   }
 }
