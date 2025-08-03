@@ -1,0 +1,2 @@
+C:/Users/jw/Desktop/onGoingProject/warkopibadah/android/app/.cxx/RelWithDebInfo/1i5a4r6i/armeabi-v7a/CMakeFiles/edit_cache.dir
+C:/Users/jw/Desktop/onGoingProject/warkopibadah/android/app/.cxx/RelWithDebInfo/1i5a4r6i/armeabi-v7a/CMakeFiles/rebuild_cache.dir

@@ -40,11 +40,16 @@ if (flutterVersionName == null) {
 android {
     namespace = "com.example.warkopibadah"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        // Set source and target compatibility to Java 17 for consistency
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17' // Set JVM target to 17 for Kotlin
     }
 
     defaultConfig {
