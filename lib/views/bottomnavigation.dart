@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart'; // Paket inti Flutter untuk membangun UI
-import 'screens/barang.dart'; // Mengimpor layar Daftar Barang (Harga Jual Barang)
-import 'screens/belanja.dart'; // Mengimpor layar Daftar Belanja
-import 'screens/bontoko.dart'; // Mengimpor layar BonToko (Harga Beli Barang)
-import 'screens/profile.dart'; // Mengimpor layar Profil Pengguna
+import 'harga_jual_barang_view.dart'; // Mengimpor layar Daftar Barang (Harga Jual Barang)
+import 'belanja_view.dart'; // Mengimpor layar Daftar Belanja
+import 'harga_beli_barang_view.dart'; // Mengimpor layar BonToko (Harga Beli Barang)
+import 'profile_view.dart'; // Mengimpor layar Profil Pengguna
 
 /// Widget [StatefulWidget] yang mengimplementasikan navigasi bilah bawah (BottomNavigationBar).
 /// Ini mengelola layar yang sedang aktif dan judul AppBar berdasarkan pilihan pengguna.
@@ -21,10 +21,10 @@ class _BottomNavigationState extends State<BottomNavigation> {
   // Daftar widget layar yang akan ditampilkan saat item BottomNavigationBar dipilih.
   // Urutan di sini harus sesuai dengan urutan item di BottomNavigationBar.
   final List<Widget> _children = [
-    const BarangScreen(title: 'Daftar Barang'), // Layar untuk menampilkan harga jual barang
-    const Bontoko(), // Layar untuk menampilkan harga beli barang (BonToko)
-    const BelanjaScreen(), // Layar untuk daftar belanja
-    const ProfileScreen(), // Layar untuk profil pengguna
+    const HargaJualBarangView(), // Layar untuk menampilkan harga jual barang
+    const HargaBeliBarangView(), // Layar untuk menampilkan harga beli barang (BonToko)
+    const BelanjaView(), // Layar untuk daftar belanja
+    const ProfileView(), // Layar untuk profil pengguna
   ];
 
   // Daftar judul AppBar yang sesuai dengan setiap layar di `_children`.
